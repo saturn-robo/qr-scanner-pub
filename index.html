@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR-сканер</title>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg); margin: 0; padding: 2rem 1rem;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .container {
+            background: var(--card); padding: 1.5rem; border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; max-width: 500px;
+        }
+        h1 { margin: 0 0 1rem; font-size: 1.5rem; text-align: center; }
+        input {
+            width: 100%; padding: 0.75rem; margin-bottom: 1rem;
+            border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem;
+            box-sizing: border-box; transition: border-color 0.2s;
+        }
+        input:focus { outline: none; border-color: var(--primary); }
+        .btn-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+        button {
+            flex: 1; padding: 0.75rem; border: none; border-radius: 8px;
+            background: var(--primary); color: white; font-weight: 500;
+            cursor: pointer; transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        #btn-stop { background: #ef4444; display: none; }
+        #reader { width: 100%; min-height: 200px; background: #f1f5f9; border-radius: 8px; overflow: hidden; }
+        #status { margin-top: 0.75rem; text-align: center; color: #64748b; font-size: 0.9rem; }
+        /* Скрываем логотип библиотеки */
+        #reader__scan_region > img { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📷 Сканер QR-кода</h1>
+        <input type="text" id="qr-result" placeholder="Здесь появится результат..." autocomplete="off">
+        <div class="btn-group">
+            <button id="btn-start">Включить камеру</button>
+            <button id="btn-stop">Остановить</button>
+        </div>
+        <div id="reader"></div>
+        <div id="status">Нажмите кнопку для запуска сканера</div>
+    </div>
+    <!-- Библиотека сканирования -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        const resultInput = document.getElementById('qr-result');
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const statusEl = document.getElementById('status');
+        let scanner = null;
+
+        btnStart.addEventListener('click', async () => {
+            try {
+                statusEl.textContent = 'Запрос доступа к камере...';
+                btnStart.disabled = true;
+
+                scanner = new Html5QrcodeScanner("reader", {
+                    fps: 15,
+                    qrbox: { width: 250, height: 250 },
+                    aspectRatio: 1.0,
+                    showTorchButtonIfSupported: true
+                }, /* verbose */ false);
+
+                scanner.render(onSuccess, onScanError);
+                statusEl.textContent = 'Камера активна. Наведите камеру на QR-код.';
+                btnStop.style.display = 'block';
+                btnStart.style.display = 'none';
+            } catch (err) {
+                statusEl.textContent = Ошибка: ${err.message};
+                btnStart.disabled = false;
+            }
+        });
+
+        function onSuccess(decodedText) {
+            resultInput.value = decodedText;
+            statusEl.textContent = '✅ QR-код успешно считан!';
+            stopScanner();
+        }
+
+        function onScanError(error) {
+            // Игнорируем штатные ошибки "QR не найден в кадре"
+        }
+        function stopScanner() {
+            if (scanner) {
+                scanner.clear().catch(() => {});
+                scanner = null;
+            }
+            btnStop.style.display = 'none';
+            btnStart.style.display = 'block';
+            btnStart.disabled = false;            statusEl.textContent = 'Сканер остановлен. Нажмите для повторного запуска.';
+        }
+
+        btnStop.addEventListener('click', stopScanner);
+    </script>
+</body>
+</html>

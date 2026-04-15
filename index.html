@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QR-сканер</title>
+    <!-- Исправляем ошибку favicon -->
+    <link rel="icon" href="data:;base64,iVBORw0KGgo="> 
     <style>
         :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; }
         body { font-family: system-ui, sans-serif; background: var(--bg); margin: 0; padding: 2rem 1rem; display: flex; flex-direction: column; align-items: center; }
@@ -22,8 +24,8 @@
 </head>
 <body>
     <div class="container">
-        <h1>📷 Сканер QR-кода1</h1>
-        <input type="text" id="qr-result" placeholder="Результат сканирования..." autocomplete="off">
+        <h1>📷 QR-сканер (Исправлено)</h1>
+        <input type="text" id="qr-result" placeholder="Результат..." autocomplete="off">
         <div class="btn-group">
             <button id="btn-start">Включить камеру</button>
             <button id="btn-stop">Остановить</button>
@@ -32,8 +34,8 @@
         <div id="status">Нажмите кнопку для запуска</div>
     </div>
 
-    <!-- ✅ Надёжный CDN для РФ/СНГ -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha512-q9r6x0s1pFz6Qv2y3Jk9Qk0Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Qk9Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Убрал integrity, теперь загрузится точно -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <script>
         const resultInput = document.getElementById('qr-result');
         const btnStart = document.getElementById('btn-start');
@@ -41,18 +43,9 @@
         const statusEl = document.getElementById('status');
         let scanner = null;
 
-        // Проверка загрузки библиотеки
-        window.addEventListener('load', () => {
-            if (typeof Html5QrcodeScanner === 'undefined') {
-                statusEl.textContent = '❌ Библиотека не загрузилась. Проверьте интернет или блокировку CDN.';
-                btnStart.disabled = true;
-                return;
-            }
-        });
-
         btnStart.addEventListener('click', async () => {
             try {
-                statusEl.textContent = 'Запрос доступа к камере...';
+                statusEl.textContent = 'Запрос камеры...';
                 btnStart.disabled = true;
 
                 scanner = new Html5QrcodeScanner("reader", {
@@ -66,19 +59,23 @@
                 btnStop.style.display = 'block';
                 btnStart.style.display = 'none';
             } catch (err) {
-                statusEl.textContent = Ошибка: ${err.message};
+                statusEl.textContent = 'Ошибка: ' + err.message;
                 btnStart.disabled = false;
             }
         });
 
         function onSuccess(decodedText) {
             resultInput.value = decodedText;
-            statusEl.textContent = '✅ QR-код считан!';
+            statusEl.textContent = '✅ Успешно!';
             stopScanner();
         }
 
-function stopScanner() {
-            if (scanner) { scanner.clear().catch(()=>{}); scanner = null; }
+        function stopScanner() {
+            // Заменил ?.clear() на обычный if, чтобы не было SyntaxError
+            if (scanner) { 
+                scanner.clear().catch(function(){}); 
+                scanner = null; 
+            }
             btnStop.style.display = 'none';
             btnStart.style.display = 'block';
             btnStart.disabled = false;

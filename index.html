@@ -3,86 +3,295 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR-сканер</title>
-    <!-- Исправляем ошибку favicon -->
+    <title>QR/Штрихкод сканер</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo="> 
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; }
+        :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --success: #22c55e; --error: #ef4444; }
         body { font-family: system-ui, sans-serif; background: var(--bg); margin: 0; padding: 2rem 1rem; display: flex; flex-direction: column; align-items: center; }
         .container { background: var(--card); padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; max-width: 500px; }
-        h1 { margin: 0 0 1rem; font-size: 1.5rem; text-align: center; }
-        input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
-        input:focus { outline: none; border-color: var(--primary); }
-        .btn-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-        button { flex: 1; padding: 0.75rem; border: none; border-radius: 8px; background: var(--primary); color: white; font-weight: 500; cursor: pointer; }
+        h1 { margin: 0 0 1rem; font-size: 1.5rem; text-align: center; color: #1e293b; }
+        
+        #qr-result { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; font-family: monospace; }
+        #qr-result:focus { outline: none; border-color: var(--primary); }
+        
+        .btn-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        button { flex: 1; min-width: 120px; padding: 0.75rem; border: none; border-radius: 8px; background: var(--primary); color: white; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
         button:hover { opacity: 0.9; }
         button:disabled { background: #94a3b8; cursor: not-allowed; }
-        #btn-stop { background: #ef4444; display: none; }
-        #reader { width: 100%; min-height: 200px; background: #f1f5f9; border-radius: 8px; overflow: hidden; }
-        #status { margin-top: 0.75rem; text-align: center; color: #64748b; font-size: 0.9rem; }
+        #btn-stop { background: #ef4444; }
+        #btn-upload { background: #8b5cf6; }
+        
+        #reader { width: 100%; min-height: 250px; background: #f1f5f9; border-radius: 8px; overflow: hidden; margin: 0.5rem 0; }
+        #reader video, #reader img { width: 100% !important; height: auto !important; object-fit: contain; }
+        
+        #status { margin-top: 0.75rem; text-align: center; color: #64748b; font-size: 0.9rem; min-height: 1.2em; }
+        #status.success { color: var(--success); font-weight: 500; }
+        #status.error { color: var(--error); font-weight: 500; }
+        
+        .hidden { display: none !important; }
+        
+        /* Стили для переключателя режимов */
+        .scan-mode { display: flex; gap: 0.25rem; margin-bottom: 1rem; background: #f1f5f9; padding: 0.25rem; border-radius: 8px; }
+        .scan-mode button { flex: 1; background: transparent; color: #64748b; border: none; padding: 0.5rem; border-radius: 6px; font-size: 0.9rem; }
+        .scan-mode button.active { background: white; color: var(--primary); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        
+        #file-input { display: none; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📷 QR-сканер (Исправлено)</h1>
-        <input type="text" id="qr-result" placeholder="Результат..." autocomplete="off">
-        <div class="btn-group">
+        <h1>📷 QR/Штрихкод сканер</h1>
+        
+        <!-- Переключатель режимов -->
+        <div class="scan-mode">
+            <button id="mode-camera" class="active">📹 Камера</button>
+            <button id="mode-file">📁 Фото</button>
+        </div>
+        
+        <input type="text" id="qr-result" placeholder="Результат сканирования..." autocomplete="off" readonly>
+        
+        <!-- Кнопки для режима камеры -->
+        <div class="btn-group" id="camera-controls">
             <button id="btn-start">Включить камеру</button>
             <button id="btn-stop">Остановить</button>
         </div>
+        
+        <!-- Кнопка для режима файла -->
+        <div class="btn-group hidden" id="file-controls">
+            <button id="btn-upload">📁 Выбрать изображение</button>
+            <button id="btn-clear" style="background: #64748b;">✕ Очистить</button>
+        </div>
+        
+        <input type="file" id="file-input" accept="image/*">
+        
         <div id="reader"></div>
-        <div id="status">Нажмите кнопку для запуска</div>
+        <div id="status">Выберите режим и нажмите кнопку для начала</div>
     </div>
 
-    <!-- Убрал integrity, теперь загрузится точно -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <script>
+        // Элементы DOM
         const resultInput = document.getElementById('qr-result');
+        const statusEl = document.getElementById('status');
+        const readerDiv = document.getElementById('reader');
+        
+        // Кнопки камеры
         const btnStart = document.getElementById('btn-start');
         const btnStop = document.getElementById('btn-stop');
-        const statusEl = document.getElementById('status');
+        const cameraControls = document.getElementById('camera-controls');
+        
+        // Кнопки файла
+        const btnUpload = document.getElementById('btn-upload');
+        const btnClear = document.getElementById('btn-clear');
+        const fileInput = document.getElementById('file-input');
+        const fileControls = document.getElementById('file-controls');
+        
+        // Переключатели режимов
+        const modeCamera = document.getElementById('mode-camera');
+        const modeFile = document.getElementById('mode-file');
+        
         let scanner = null;
+        let currentMode = 'camera'; // 'camera' или 'file'
+        let html5QrCode = null; // для scanFile
+        
+        // Поддерживаемые форматы: QR + популярные 1D штрихкоды
+        const SUPPORTED_FORMATS = [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.CODABAR
+        ];
 
+        // === Управление режимами ===
+        function setMode(mode) {
+            currentMode = mode;
+            stopAllScanning();
+            
+            if (mode === 'camera') {
+                modeCamera.classList.add('active');
+                modeFile.classList.remove('active');
+                cameraControls.classList.remove('hidden');
+                fileControls.classList.add('hidden');
+                statusEl.textContent = 'Нажмите "Включить камеру" для начала';
+                statusEl.className = '';
+            } else {
+                modeFile.classList.add('active');
+                modeCamera.classList.remove('active');
+                cameraControls.classList.add('hidden');
+                fileControls.classList.remove('hidden');
+                statusEl.textContent = 'Нажмите "Выбрать изображение" для загрузки фото';
+                statusEl.className = '';
+            }
+            resultInput.value = '';
+        }
+
+        modeCamera.addEventListener('click', () => setMode('camera'));
+        modeFile.addEventListener('click', () => setMode('file'));
+
+        // === Сканирование с камеры ===
         btnStart.addEventListener('click', async () => {
+            if (currentMode !== 'camera') return;
+            
             try {
-                statusEl.textContent = 'Запрос камеры...';
+                setStatus('Запрос доступа к камере...', 'normal');
                 btnStart.disabled = true;
+
+                // Очищаем предыдущий сканер если есть
+                if (scanner) {
+                    await scanner.clear();
+                    scanner = null;
+                }
 
                 scanner = new Html5QrcodeScanner("reader", {
                     fps: 10,
                     qrbox: { width: 250, height: 250 },
-                    showTorchButtonIfSupported: true
+                    aspectRatio: 1.0,
+                    showTorchButtonIfSupported: true,
+                    supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+                    formatsToSupport: SUPPORTED_FORMATS,
+                    rememberLastUsedCamera: true
                 }, false);
 
-                scanner.render(onSuccess, () => {});
-                statusEl.textContent = 'Камера активна. Наведите на QR.';
+                scanner.render(onSuccess, onScanError);
+                setStatus('📷 Камера активна. Наведите на код.', 'normal');
                 btnStop.style.display = 'block';
                 btnStart.style.display = 'none';
+                
             } catch (err) {
-                statusEl.textContent = 'Ошибка: ' + err.message;
+                console.error('Camera error:', err);
+                setStatus('❌ Ошибка камеры: ' + (err.message || err), 'error');
                 btnStart.disabled = false;
             }
         });
 
+        // === Сканирование из файла ===
+        btnUpload.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', async (e) => {
+            if (currentMode !== 'file') return;
+            
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // Проверка типа файла
+            if (!file.type.startsWith('image/')) {
+                setStatus('❌ Пожалуйста, выберите изображение', 'error');
+                return;
+            }
+            
+            try {
+                setStatus('🔍 Сканирование...', 'normal');
+                btnUpload.disabled = true;
+                
+                // Очищаем предыдущий сканер
+                if (scanner) {
+                    await scanner.clear();
+                    scanner = null;
+                }
+                
+                // Создаём экземпляр для сканирования файла
+                html5QrCode = new Html5Qrcode("reader");
+                
+                // scanFile(file, showImage = true, config)
+                const result = await html5QrCode.scanFile(file, true, {
+                    formatsToSupport: SUPPORTED_FORMATS
+                });
+                
+                onSuccess(result);
+                
+            } catch (err) {
+                console.error('File scan error:', err);
+                setStatus('❌ Не распознано: ' + (err.message || 'Проверьте качество фото'), 'error');
+                resultInput.value = '';
+            } finally {
+                btnUpload.disabled = false;
+                // Не очищаем html5QrCode сразу, чтобы пользователь видел изображение
+            }
+        });
+
+        btnClear.addEventListener('click', () => {
+            resultInput.value = '';
+            setStatus('Выберите другое изображение', 'normal');
+            fileInput.value = ''; // сброс input для повторного выбора того же файла
+            if (html5QrCode) {
+                html5QrCode.clear();
+                html5QrCode = null;
+            }
+            readerDiv.innerHTML = ''; // очищаем превью
+        });
+
+        // === Общие функции ===
         function onSuccess(decodedText) {
             resultInput.value = decodedText;
-            statusEl.textContent = '✅ Успешно!';
-            stopScanner();
+            setStatus('✅ Код распознан!', 'success');
+            stopAllScanning();
+            
+            // Копирование в буфер при клике на результат
+            resultInput.select();
+            navigator.clipboard?.writeText(decodedText);
         }
 
-        function stopScanner() {
-            // Заменил ?.clear() на обычный if, чтобы не было SyntaxError
-            if (scanner) { 
-                scanner.clear().catch(function(){}); 
-                scanner = null; 
+        function onScanError(errorMessage) {
+            // Игнорируем ошибки во время сканирования - это нормально
+            // Библиотека вызывает это при каждом кадре без результата
+        }
+
+        function stopAllScanning() {
+            // Остановка камеры
+            if (scanner) {
+                scanner.clear().catch(() => {});
+                scanner = null;
             }
+            // Остановка file-сканера
+            if (html5QrCode) {
+                html5QrCode.clear().catch(() => {});
+                html5QrCode = null;
+            }
+            
+            // Сброс кнопок
             btnStop.style.display = 'none';
             btnStart.style.display = 'block';
             btnStart.disabled = false;
-            statusEl.textContent = 'Готово. Нажмите для нового скана.';
+            btnUpload.disabled = false;
         }
 
-        btnStop.addEventListener('click', stopScanner);
+        btnStop.addEventListener('click', () => {
+            stopAllScanning();
+            setStatus('Остановлено. Нажмите для нового скана.', 'normal');
+        });
+
+        function setStatus(text, type = 'normal') {
+            statusEl.textContent = text;
+            statusEl.className = type;
+        }
+
+        // === Обработка клавиатуры ===
+        resultInput.addEventListener('click', function() {
+            this.select();
+        });
+        
+        // Авто-копирование при успешном сканировании (опционально)
+        // Можно отключить если мешает
+        let copyTimeout;
+        const originalStatus = statusEl.textContent;
+        
+        // Очистка при фокусе на input
+        resultInput.addEventListener('focus', function() {
+            if (this.value) {
+                this.select();
+            }
+        });
+
+        // === Инициализация ===
+        // Проверяем поддержку API
+        if (!navigator.mediaDevices?.getUserMedia && currentMode === 'camera') {
+            setStatus('⚠️ Камера не поддерживается в этом браузере', 'error');
+            btnStart.disabled = true;
+        }
     </script>
 </body>
 </html>

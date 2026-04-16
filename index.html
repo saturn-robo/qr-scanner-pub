@@ -3,34 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR-сканер</title>
-    <link rel="icon" href="data:;base64,iVBORw0KGgo="> 
+    <title>Сканер штрихкодов</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <style>
         :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; }
         body { font-family: system-ui, sans-serif; background: var(--bg); margin: 0; padding: 2rem 1rem; display: flex; flex-direction: column; align-items: center; }
         .container { background: var(--card); padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; max-width: 500px; }
         h1 { margin: 0 0 1rem; font-size: 1.5rem; text-align: center; }
-        input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
-        input:focus { outline: none; border-color: var(--primary); }
+        
+        #qr-result { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; background: #fafafa; }
+        #qr-result:focus { outline: none; border-color: var(--primary); }
+        
         .btn-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-        button { flex: 1; padding: 0.75rem; border: none; border-radius: 8px; background: var(--primary); color: white; font-weight: 500; cursor: pointer; }
+        button { flex: 1; padding: 0.75rem; border: none; border-radius: 8px; background: var(--primary); color: white; font-weight: 500; cursor: pointer; transition: 0.2s; }
         button:hover { opacity: 0.9; }
         button:disabled { background: #94a3b8; cursor: not-allowed; }
-        #reader { width: 100%; min-height: 200px; background: #f1f5f9; border-radius: 8px; overflow: hidden; }
-        /* Убираем оверлеи библиотеки — чёрный круг и прицел */
-        #reader .scan-region-highlight, 
-        #reader .scan-region-highlight-svg,
-        #reader svg { display: none !important; }
-        #reader video, #reader img { width: 100% !important; height: auto !important; object-fit: contain; display: block; }
+        
+        #btn-upload { background: #8b5cf6; }
+        #btn-clear { background: #64748b; display: none; } /* Скрыта по умолчанию */
+        
+        #reader { width: 100%; min-height: 200px; background: #f1f5f9; border-radius: 8px; overflow: hidden; position: relative; }
+        #reader video, #reader img, #reader canvas { width: 100% !important; height: auto !important; display: block; object-fit: contain; }
+        
+        /* 🔥 Жёстко скрываем все элементы интерфейса библиотеки (чёрный круг, прицел, кнопки) */
+        #reader div, #reader svg, #reader img[src^="data:"], #reader .scan-region-highlight { display: none !important; }
+        #reader > canvas { display: block !important; } /* Оставляем только canvas для декодирования */
+        
         #status { margin-top: 0.75rem; text-align: center; color: #64748b; font-size: 0.9rem; }
         #file-input { display: none; }
-        #btn-upload { background: #8b5cf6; }
-        #btn-clear { background: #64748b; display: none; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📷 QR-сканер</h1>
+        <h1>📷 Сканер</h1>
         <input type="text" id="qr-result" placeholder="Результат..." autocomplete="off" readonly>
         
         <div class="btn-group">
@@ -53,11 +58,11 @@
         const fileInput = document.getElementById('file-input');
         const statusEl = document.getElementById('status');
         const readerDiv = document.getElementById('reader');
-        
-        let scanner = null;
-        let html5QrCode = null;
 
-        // Поддерживаемые форматы: QR + штрихкоды
+        let html5QrCode = null;
+        let cameraRunning = false;
+
+        // Поддерживаемые форматы (QR + основные 1D штрихкоды документов)
         const FORMATS = [
             Html5QrcodeSupportedFormats.QR_CODE,
             Html5QrcodeSupportedFormats.EAN_13,
@@ -67,135 +72,144 @@
             Html5QrcodeSupportedFormats.CODE_39
         ];
 
-        // === Камера ===
+        // === КАМЕРА ===
         btnStart.addEventListener('click', async () => {
+            if (cameraRunning) return; // Кнопка "остановить" убрана по запросу
+            
             try {
                 statusEl.textContent = 'Запрос камеры...';
                 btnStart.disabled = true;
                 btnUpload.disabled = true;
-                
-                // Очистка предыдущего сканера
                 await cleanup();
 
-                scanner = new Html5QrcodeScanner("reader", {
-                    fps: 10,
-                    // Убираем видимый прицел — задаём большой qrbox + скрываем через CSS
-                    qrbox: { width: 400, height: 400 },
-                    aspectRatio: 1.0,
-                    showTorchButtonIfSupported: true,
-                    formatsToSupport: FORMATS,
-                    disableFlip: true,
-                    // Важно: не показывать оверлей
-                    rememberLastUsedCamera: true
-                }, false);
-
-                scanner.render(onSuccess, () => {});
-                statusEl.textContent = 'Камера активна. Наведите на код.';
+                html5QrCode = new Html5Qrcode("reader");
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    onScanSuccess,
+                    () => {} // Ошибки игнорируем (каждый кадр без кода)
+                );
+                cameraRunning = true;
+                btnStart.style.background = '#22c55e';
+                btnStart.textContent = 'Камера работает';
+                statusEl.textContent = 'Наведите на штрихкод';
                 
             } catch (err) {
-                statusEl.textContent = 'Ошибка: ' + err.message;
+                statusEl.textContent = '❌ Камера недоступна: ' + err.message;
                 btnStart.disabled = false;
-                btnUpload.disabled = false;
             }
         });
 
-        // === Загрузка фото ===
+        // === ЗАГРУЗКА ФОТО (Оптимизировано для документов) ===
         btnUpload.addEventListener('click', () => {
-            // Сбрасываем значение input, чтобы можно было выбрать тот же файл повторно
             fileInput.value = '';
             fileInput.click();
         });
-        
+
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
-            if (!file) return;
-            
-            if (!file.type.startsWith('image/')) {
-                statusEl.textContent = '❌ Выберите изображение';
-                return;
-            }
-            
+            if (!file || !file.type.startsWith('image/')) return;
+
             try {
-                statusEl.textContent = '🔍 Сканирование...';
+                statusEl.textContent = '🔍 Анализ документа...';
                 btnUpload.disabled = true;
                 btnStart.disabled = true;
-                
                 await cleanup();
-                
-                // Создаём сканер для файла
+
+                // 1. Загружаем изображение в оригинальном размере
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+
+                // 2. Создаём canvas и рисуем БЕЗ сжатия
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(img, 0, 0);
+                URL.revokeObjectURL(url);
+
+                // 3. Показываем превью пользователю
+                const preview = document.createElement('img');
+                preview.src = file; // Браузер сам оптимизирует отображение
+                preview.style.width = '100%';
+                readerDiv.appendChild(preview);
+
+                // 4. Предобработка: повышаем контраст для документов
+                enhanceForBarcode(ctx, canvas.width, canvas.height);
+
+                // 5. Декодируем напрямую с canvas
                 html5QrCode = new Html5Qrcode("reader");
+                const result = await html5QrCode.decode(canvas, { formatsToSupport: FORMATS });
                 
-                // scanFile сканирует в полном разрешении исходного изображения
-                const result = await html5QrCode.scanFile(file, true, {
-                    formatsToSupport: FORMATS,
-                    disableFlip: true
-                });
-                
-                onSuccess(result);
-                // Показываем кнопку очистки только после успешной загрузки
-                btnClear.style.display = 'block';
+                onScanSuccess(result);
+                btnClear.style.display = 'block'; // Показываем только после успешного скана
                 
             } catch (err) {
-                console.error('Scan error:', err);
-                statusEl.textContent = '❌ Не распознано. Проверьте качество фото.';
-                resultInput.value = '';
+                console.error(err);
+                statusEl.textContent = '❌ Не распознано. Сфотографируйте штрихкод крупнее или при хорошем свете.';
             } finally {
                 btnUpload.disabled = false;
                 btnStart.disabled = false;
             }
         });
 
-        // === Очистить (только для режима файла) ===
+        // === ОЧИСТКА ===
         btnClear.addEventListener('click', () => {
             resultInput.value = '';
             fileInput.value = '';
             btnClear.style.display = 'none';
-            readerDiv.innerHTML = ''; // убираем превью изображения
-            if (html5QrCode) {
-                html5QrCode.clear();
-                html5QrCode = null;
-            }
+            cleanup();
             statusEl.textContent = 'Готово. Загрузите новое фото.';
         });
 
-        // === Успешное сканирование ===
-        function onSuccess(decodedText) {
-            resultInput.value = decodedText;
-            statusEl.textContent = '✅ Успешно!';
-            stopScanner();
-            // Авто-копирование
+        // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+        function onScanSuccess(text) {
+            resultInput.value = text;
+            statusEl.textContent = '✅ Успешно! Скопировано в буфер.';
             resultInput.select();
-            navigator.clipboard?.writeText(decodedText);
+            navigator.clipboard?.writeText(text);
+            stopCamera();
         }
 
-        // === Остановка сканера ===
-        function stopScanner() {
-            if (scanner) {
-                scanner.clear().catch(() => {});
-                scanner = null;
+        function stopCamera() {
+            if (html5QrCode && cameraRunning) {
+                html5QrCode.stop().then(() => {
+                    cameraRunning = false;
+                    btnStart.style.background = '';
+                    btnStart.textContent = 'Включить камеру';
+                    cleanup();
+                });
             }
-            btnStart.disabled = false;
-            btnUpload.disabled = false;
-            statusEl.textContent = 'Готово. Нажмите для нового скана.';
         }
 
-        // === Полная очистка ресурсов ===
         async function cleanup() {
-            if (scanner) {
-                try { await scanner.clear(); } catch(e) {}
-                scanner = null;
-            }
             if (html5QrCode) {
                 try { await html5QrCode.clear(); } catch(e) {}
-                html5QrCode = null;
             }
             readerDiv.innerHTML = '';
         }
 
-        // === Авто-выделение результата при клике ===
-        resultInput.addEventListener('click', function() {
-            if (this.value) this.select();
-        });
+        // 🔥 Ключевая функция для документов: повышает контраст и убирает цветовой шум
+        function enhanceForBarcode(ctx, w, h) {
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const data = imageData.data;
+            const contrast = 1.8; // Коэффициент контраста (1.0 = без изменений)
+            
+            for (let i = 0; i < data.length; i += 4) {
+                // Перевод в оттенки серого
+                let gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+                // Повышение контраста
+                gray = ((gray - 128) * contrast) + 128;
+                // Ограничиваем 0-255
+                gray = Math.max(0, Math.min(255, gray));
+                
+                data[i] = data[i+1] = data[i+2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        resultInput.addEventListener('click', function() { if(this.value) this.select(); });
     </script>
 </body>
 </html>
